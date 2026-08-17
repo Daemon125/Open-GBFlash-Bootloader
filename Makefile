@@ -8,7 +8,7 @@
 #   make check      offline validation of the produced .bin (see tools/check_image.py)
 #   make clean      remove build/
 #   make host-test  run the native protocol harness in host/ (proto.c only)
-#   make dist       stage the release payload + SHA256SUMS into build/dist/
+#   make dist       stage the release zip into build/dist/
 #
 # To INSTALL the result on a device, use the guided installer at the tree root:
 #   python3 install.py             the whole procedure, with every precondition

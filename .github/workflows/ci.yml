@@ -61,15 +61,19 @@ jobs:
       # their own backup into a flashable image.  If that is broken, the
       # release is undeliverable, so it is a gate and not an afterthought.
       #
-      # RUN IT THE WAY THE RELEASE BODY TELLS PEOPLE TO RUN IT.  The staged
-      # files are copied to a scratch directory and the command is issued from
-      # inside it with no --bootloader flag, so default_bootloader()'s
-      # flat-directory discovery -- the mechanism the published one-liner
-      # depends on -- is actually exercised.  Passing --bootloader explicitly,
-      # as this step used to, gated a command no user is told to type.
+      # RUN IT THE WAY THE RELEASE BODY TELLS PEOPLE TO RUN IT.  The release is
+      # one zip, so the zip is unpacked and the command issued from inside the
+      # extracted folder with no --bootloader flag, exercising the
+      # flat-directory discovery the published instructions depend on. Passing
+      # --bootloader explicitly, as this step once did, gated a command no user
+      # is told to type; copying `build/dist/*`, as it did after that, only
+      # worked while the payload was also published as loose files.
       - name: Composite tool end-to-end, as a downloader runs it
         run: |
-          mkdir -p /tmp/dl && cp build/dist/* /tmp/dl/
+          rm -rf /tmp/dl /tmp/unz && mkdir -p /tmp/unz && cd /tmp/unz
+          unzip -q "$GITHUB_WORKSPACE"/build/dist/*.zip
+          mv gbflash-bootloader /tmp/dl
+          cd "$GITHUB_WORKSPACE"
           python3 .github/scripts/make_test_backup.py /tmp/device-backup.bin
           (cd /tmp/dl && python3 build_composite.py \
               --backup /tmp/device-backup.bin --out /tmp/install.bin)

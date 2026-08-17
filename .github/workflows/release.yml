@@ -204,8 +204,6 @@ jobs:
           echo "built         $a"
           echo "as-downloaded $b"
           test "$a" = "$b"
-          grep -q "$a" build/dist/SHA256SUMS
-          (cd build/dist && sha256sum -c SHA256SUMS)
 
       - name: Compose the release body
         run: |

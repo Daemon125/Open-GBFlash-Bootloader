@@ -18,10 +18,9 @@ takes it out of there.
 The zip's own digest is printed into the release body rather than attached as
 a second file.
 
-The output directory is deliberately FLAT -- the payload is assembled in a
-temporary directory and only the zip survives. .github/workflows/release.yml
-does `cp build/dist/* somewhere/`, which fails the job under `bash -e` the
-moment a subdirectory appears in there.
+The output directory holds exactly one regular file. The payload is assembled
+in a temporary directory and only the zip survives, so the workflows can treat
+`ls build/dist` as the asset list and nothing has to be kept in step by hand.
 
 THE STAMP
 

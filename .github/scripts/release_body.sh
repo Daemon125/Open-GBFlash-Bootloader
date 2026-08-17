@@ -34,12 +34,38 @@ else
 fi
 
 # The size line make emits after objcopy, and the checker's verdict.
-size_line=$(grep -E '^\s*IMAGE' "$BUILD_LOG" | tail -1 | sed 's/^[[:space:]]*//')
-check_line=$(grep -E '^RESULT:' "$CHECK_LOG" | tail -1)
+#
+# A grep that matches nothing exits 1 and `set -e` then kills this script with
+# no message at all, which has twice been mistaken for a real failure. The
+# usual cause is a log from a build that had nothing to do -- `make all` on an
+# already-built tree prints "Nothing to be done", never an IMAGE line. CI is a
+# fresh checkout so it always builds; a local rehearsal needs `make clean`.
+need() {
+    local what=$1 pattern=$2 log=$3 hit
+    hit=$(grep -E "$pattern" "$log" | tail -1 | sed 's/^[[:space:]]*//') || true
+    if [ -z "$hit" ]; then
+        echo "release_body.sh: no $what line in $log" >&2
+        echo "  (looked for /$pattern/)" >&2
+        echo "  If this is a local run, the build probably had nothing to do:" >&2
+        echo "  make clean && make all 2>&1 | tee $log" >&2
+        exit 1
+    fi
+    printf '%s' "$hit"
+}
+
+size_line=$(need "IMAGE size" '^[[:space:]]*IMAGE' "$BUILD_LOG")
+check_line=$(need "make check RESULT" '^RESULT:' "$CHECK_LOG")
 # The per-suite summaries. '^fuzz:' deliberately does not match the "fuzzing
 # bl_proto_feed:" progress line, and the two '[0-9]' anchors keep the per-suite
 # totals while dropping the per-case narration those suites also print.
-host_lines=$(grep -E 'assertions|^fuzz:|^rehearse_update: [0-9]|^test_install: [0-9]' "$HOST_LOG")
+# Several lines, one per suite -- so NOT `need`, which keeps only the last.
+host_lines=$(grep -E 'assertions|^fuzz:|^rehearse_update: [0-9]|^test_install: [0-9]' \
+             "$HOST_LOG") || true
+[ -n "$host_lines" ] || {
+    echo "release_body.sh: no host-suite summaries in $HOST_LOG" >&2
+    echo "  run: make -C host test 2>&1 | tee $HOST_LOG" >&2
+    exit 1
+}
 cc_line=$(grep -m1 -E 'arm-none-eabi-gcc \(' "$BUILD_LOG" || echo "unrecorded")
 
 cat <<EOF
