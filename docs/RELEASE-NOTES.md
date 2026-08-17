@@ -86,6 +86,15 @@ confirmed by `R8_RESET_STATUS` reading `RST_FLAG_SW` on each new firmware's firs
 - **`install.py --restore`**, writing a backup back to the device over ISP and verifying it.
   This is the mode you reach for when something has already gone wrong, so it mattered that
   it was exercised rather than only simulated.
+- **A second, independently compiled build.** Everything else in this section was clang
+  15.3.1 output. A CI build — GCC on `ubuntu-latest`, 7,144 bytes against the developer
+  build's 7,056, a wholly different image — was downloaded as a workflow artifact and
+  installed on the same device with `install.py`, then read back and compared byte for
+  byte. So the bootloader does not depend on one compiler's codegen, and the release
+  payload has been installed on hardware exactly as a downloader would receive it: the
+  zip's checksums, the repository URL substituted into its `README.txt`, and the
+  `BL_SHA256` stamp binding that `install.py` to that `bootloader.bin` were all verified
+  on the downloaded copy.
 - **Both routes into update mode.** The software request (magic word plus `SYSRESETREQ`) is
   what all four verified updates used. Holding **U22 at power-on** was also tried on the
   device: the board stayed dark, which is update mode entered correctly, and it returned to
@@ -110,17 +119,19 @@ But it is untested code.
 
 ### The publishing pipeline itself, on its first release
 
-Everything the rest of this document describes was verified from a source checkout. The
-release path — `make dist`, `.github/workflows/release.yml`, the staged payload, the
-zip, and the published assets — runs for the first time with the first tag. Its gates
-are real (the workflow refuses to publish if the build, `make check`, the host suites or
-the end-to-end rehearsal fail, and it re-reads the published asset list back from the
-API), but a gate that has never fired is a gate nobody has watched work.
+The staged payload itself has been exercised: CI builds it with the same `make dist` a
+release uses, and one such artifact was downloaded and installed on the device (see the
+second-compiler entry above). What has **never run** is `.github/workflows/release.yml`
+end to end — the publish step, `gh release create`, and the assertion that reads the
+attached asset list back from the API. Those fire for the first time with the first tag.
+The gates ahead of them are real, and CI covers every one of them, but a gate that has
+never fired in its own workflow is a gate nobody has watched work.
 
 The binary in a release is also **built by CI, not on the developer's machine**, so its
-sha256 is not the one quoted in [BUILDING.md](BUILDING.md). That is expected: the digest
-to check a download against is the one in that release's own `SHA256SUMS`, and the
-`install.py` published alongside carries the same value stamped into it.
+sha256 is not the one quoted in [BUILDING.md](BUILDING.md) — and neither is its size.
+That is expected: the digest to check a download against is the one in that release's own
+`SHA256SUMS`, and the `install.py` published alongside carries the same value stamped
+into it.
 
 ---
 

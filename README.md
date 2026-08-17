@@ -185,7 +185,8 @@ On that device:
 
 - four complete firmware updates with unmodified stock vendor `fw.bin`, both directions of
   the size change, each confirmed by reading flash back and comparing byte for byte;
-- one complete `install.py` install, run end to end, confirmed the same way;
+- two complete `install.py` installs, run end to end, confirmed the same way — the second
+  from a CI-built download, which is a different compiler's image entirely;
 - `install.py --restore`, writing a backup back over ISP;
 - entering update mode both ways — the software request, and U22 held at power-on;
 - `wchisp` used successfully, both to identify the chip and to write a full image.
