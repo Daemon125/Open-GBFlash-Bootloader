@@ -280,7 +280,7 @@ test_flash: 208 assertions / 241 executions, 0 failures
 fuzz: 30000 iterations, 41314040 bytes fed, 524562 response bytes,
       109645 idle notifications, 0 failures
 rehearse_update: 80 checks, 0 failures
-test_install: 540 checks, 0 failures
+test_install: 537 checks, 0 failures
 ```
 
 `test_install` drives `install.py`'s own logic against simulated devices in thirteen states

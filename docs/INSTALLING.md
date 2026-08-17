@@ -154,7 +154,7 @@ is vendor firmware, and this project does not redistribute that.
 - **`bootloader.bin`** — downloaded from a release, or built from source as
   `build/bootloader.bin` (see [BUILDING.md](BUILDING.md)). Either way it is 7,056 bytes.
   Its sha256 depends on the compiler that built it: for a download, the value to check is
-  the one in that release's `SHA256SUMS`.
+  the one in the `SHA256SUMS` inside the release zip.
 - **`tools/build_composite.py`**, and a Python 3.8-or-newer interpreter (standard library
   only).
 - **A full CodeFlash dump of *your* device**, from `docs/backup-codeflash.py` — step 3.

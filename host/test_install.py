@@ -330,12 +330,14 @@ def test_dist_stamps_the_bootloader_digest():
                        "backup-codeflash.py", "check-bootloader-region.py",
                        "LICENSE", "README.txt", "bootloader.bin",
                        "SHA256SUMS"])
-        # release.yml does `cp build/dist/* somewhere/`, which fails the job
-        # under `bash -e` the moment a subdirectory turns up in there.
-        ck(all(os.path.isfile(os.path.join(out, n))
-               for n in os.listdir(out)),
-           "the staging directory is flat -- no subdirectory for cp to trip on",
-           ", ".join(sorted(os.listdir(out))))
+        # THE STAGING DIRECTORY IS THE ASSET LIST, and it must hold exactly the
+        # zip. Publishing the same nine files loose beside it put thirteen rows
+        # on the release page and buried the one download.
+        staged = sorted(os.listdir(out))
+        ck(staged == ["gbflash-bootloader.zip"],
+           "the release publishes one asset and one only", ", ".join(staged))
+        ck(all(os.path.isfile(os.path.join(out, n)) for n in staged),
+           "and it is a regular file, not a directory release.yml would trip on")
 
         # The zip is the primary download, so it is what gets unpacked here and
         # checked from now on -- the same bytes a person would end up with.
@@ -379,42 +381,24 @@ def test_dist_stamps_the_bootloader_digest():
         ck(any("not the one published" in n for n in t.notes),
            "and a swapped bootloader.bin is called out", "; ".join(t.notes))
 
-        # SHA256SUMS IS WHAT A DOWNLOADER RUNS.  The release body offers a
-        # loose-file route as well as the zip, so SHA256SUMS must name the loose
-        # files and NOT the zip: listing it there ends `sha256sum -c SHA256SUMS`
-        # with "gbflash-bootloader.zip: FAILED open or read" and exit 1 for
-        # anyone who took the files individually -- as the first command they
-        # run, immediately before erasing their CodeFlash.
-        with open(os.path.join(out, "SHA256SUMS")) as f:
-            loose_named = sorted(l.split()[1] for l in f if l.strip())
-        ck("gbflash-bootloader.zip" not in loose_named,
-           "SHA256SUMS does not name the zip, so the loose-file route verifies",
-           ", ".join(loose_named))
-        ck(loose_named == sorted(n for n in want if n != "SHA256SUMS"),
-           "and it names every loose file", ", ".join(loose_named))
-        ck(os.path.isfile(zp + ".sha256"),
-           "the zip carries its own digest file instead")
-        with open(zp + ".sha256") as f:
-            row = f.read().split()
-        ck(len(row) == 2 and row[0] == hashlib.sha256(
-               open(zp, "rb").read()).hexdigest()
-           and row[1] == "gbflash-bootloader.zip",
-           "which is a true, checkable one-line SHA256SUMS", " ".join(row))
-
-        # SHA256SUMS is what a downloader runs; it must be true of both shapes.
-        for where in (payload, out):
-            with open(os.path.join(where, "SHA256SUMS")) as f:
-                rows = [l.split() for l in f if l.strip()]
-            bad = [n for h, n in rows
-                   if hashlib.sha256(
-                       open(os.path.join(where, n), "rb").read()
-                   ).hexdigest() != h]
-            # The extracted bootloader.bin was mutated above on purpose; the
-            # loose copy was taken before that, so only the extracted row is
-            # expected to differ.
-            bad = [n for n in bad if n != "bootloader.bin"]
-            ck(not bad, "every SHA256SUMS row in %s is true"
-               % os.path.basename(where), ", ".join(bad))
+        # SHA256SUMS IS WHAT A DOWNLOADER RUNS, and it lives INSIDE the zip
+        # so it works after extraction. It must therefore name the payload
+        # files and not the zip itself -- a row for a file that is not in the
+        # folder ends `sha256sum -c SHA256SUMS` with "FAILED open or read" and
+        # exit 1, as the first command someone runs before erasing CodeFlash.
+        with open(os.path.join(payload, "SHA256SUMS")) as f:
+            rows = [l.split() for l in f if l.strip()]
+        named = sorted(r[1] for r in rows)
+        ck(named == sorted(n for n in want if n != "SHA256SUMS"),
+           "the payload's SHA256SUMS names every file beside it, and nothing "
+           "else", ", ".join(named))
+        bad = [n for h, n in rows
+               if hashlib.sha256(
+                   open(os.path.join(payload, n), "rb").read()
+               ).hexdigest() != h
+               # bootloader.bin was mutated above on purpose.
+               and n != "bootloader.bin"]
+        ck(not bad, "and every row in it is true", ", ".join(bad))
 
         with open(os.path.join(payload, "README.txt")) as f:
             rt = f.read()

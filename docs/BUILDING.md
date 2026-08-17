@@ -2,12 +2,12 @@
 
 Everything here runs offline. Nothing in this document touches a device.
 
-**You may not need to build at all.** A release publishes `build/bootloader.bin` and the
-Python tools, built from source by CI, with a checksum. Downloading that and skipping to
-[INSTALLING.md](INSTALLING.md) is a supported route — you still composite it against your
-own backup locally, because no ready-made flashable image can be published without
-redistributing someone else's firmware. This page is for building it yourself, and for
-understanding what the gates assert.
+**You may not need to build at all.** A release publishes one zip holding the bootloader
+and the Python tools, built from source by CI, with its sha256 on the release page.
+Downloading that and skipping to [INSTALLING.md](INSTALLING.md) is a supported route — you
+still composite it against your own backup locally, because no ready-made flashable image
+can be published without redistributing someone else's firmware. This page is for building
+it yourself, and for understanding what the gates assert.
 
 ---
 
@@ -38,7 +38,7 @@ sha256 4cf2a387bf62f1d64dfbbb145681fd0e107b0698d812e23686ce31b66d00d4cd
 **That is a record of one build, not a constant to match.** A different `arm-none-eabi-gcc`
 produces a different, equally valid image — which is why nothing in the build or the test
 suite asserts it. If you are checking a *download* rather than your own build, the value
-to compare against is the one in that release's own `SHA256SUMS`, not this one: release
+to compare against is the one printed on that release's page, not this one: release
 binaries are built by CI, on a different toolchain from this.
 
 ---
@@ -80,14 +80,23 @@ a courtesy, and the link rule fails the build if it prints anything.
 | `make syms` | symbol table sorted by address, with sizes |
 | `make host-test` | the host suites in `host/` (same as `make -C host test`) |
 | `make -C host test-install` | the installer suite alone — Python only, no compiler, no device |
-| `make dist` | stage the release payload and `SHA256SUMS` into `build/dist/` |
+| `make dist` | stage the release zip into `build/dist/` |
 | `make clean` | remove `build/` |
 
-`make dist` stages `bootloader.bin`, `install.py` and the three standalone helper scripts
-into one flat directory, which is the layout a release download has. `install.py` finds
-its siblings in either that layout or a source checkout, so
-`cd build/dist && python3 install.py --dry-run` rehearses the release exactly as a
-downloader would get it.
+`make dist` builds `build/dist/gbflash-bootloader.zip` and nothing else — that one file is
+the whole release. Inside it are `bootloader.bin`, `install.py`, `requirements.txt`, the
+three standalone helper scripts, `LICENSE`, a `README.txt` and a `SHA256SUMS` covering
+them. `install.py` finds its siblings in either that flat layout or a source checkout, so
+unzipping it somewhere and running `python3 install.py --dry-run` rehearses the release
+exactly as a downloader would get it:
+
+```sh
+make dist && (cd build/dist && unzip -q gbflash-bootloader.zip)
+cd build/dist/gbflash-bootloader && python3 install.py --dry-run
+```
+
+`make dist` also stamps the staged `install.py` with the sha256 of the `bootloader.bin`
+staged beside it, so a release vouches for its own binary whichever compiler built it.
 
 Add `V=1` to echo every command.
 

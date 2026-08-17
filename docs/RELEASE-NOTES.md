@@ -27,8 +27,8 @@ It does not write DataFlash, InfoFlash or the user configuration word.
 bytes; with the toolchain named in [BUILDING.md](BUILDING.md) its sha256 is
 `4cf2a387bf62f1d64dfbbb145681fd0e107b0698d812e23686ce31b66d00d4cd`. A different
 `arm-none-eabi-gcc` produces a different, equally valid image, so that value is a record
-of one build rather than something to match. The digest of a released binary is the one
-in that release's `SHA256SUMS`.
+of one build rather than something to match. A release publishes one zip, whose digest
+is printed on the release page; the `SHA256SUMS` inside it covers the files it contains.
 
 ---
 
@@ -129,9 +129,8 @@ never fired in its own workflow is a gate nobody has watched work.
 
 The binary in a release is also **built by CI, not on the developer's machine**, so its
 sha256 is not the one quoted in [BUILDING.md](BUILDING.md) — and neither is its size.
-That is expected: the digest to check a download against is the one in that release's own
-`SHA256SUMS`, and the `install.py` published alongside carries the same value stamped
-into it.
+That is expected: check a download against the zip digest printed on the release page,
+and the `install.py` inside that zip carries the same value stamped into it.
 
 ---
 
@@ -338,7 +337,7 @@ make -C host test
     fuzz: 30000 iterations, 41314040 bytes fed, 524562 response bytes,
           109645 idle notifications, 0 failures
     rehearse_update: 80 checks, 0 failures
-    test_install: 540 checks, 0 failures
+    test_install: 537 checks, 0 failures
 
 sha256sum build/bootloader.bin        (shasum -a 256 on macOS)
     4cf2a387bf62f1d64dfbbb145681fd0e107b0698d812e23686ce31b66d00d4cd
@@ -358,7 +357,7 @@ broken:
 
 ```
 make -C host test-install
-    test_install: 540 checks, 0 failures
+    test_install: 537 checks, 0 failures
 ```
 
 Without `build/bootloader.bin` it uses a synthetic bootloader image; with it, it

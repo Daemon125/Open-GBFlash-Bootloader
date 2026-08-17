@@ -6,15 +6,17 @@
 
 WHAT COMES OUT
 
-    build/dist/gbflash-bootloader.zip     one download, extracts to a folder
-    build/dist/<each file>                the same files loose
-    build/dist/SHA256SUMS                 the loose files AND the zip
+    build/dist/gbflash-bootloader.zip     the one and only release asset
 
-Both shapes are published. The zip is one click and one extract on every
-platform a downloader might be on; the loose files are there for anyone who
-wants a single script without the rest, and for `sha256sum -c SHA256SUMS`.
-The zip carries its own SHA256SUMS covering just its contents, so verifying
-works after extracting too.
+That is the whole staging directory, and release.yml publishes everything in
+it, so one file in means one row on the release page. The zip extracts to a
+folder holding install.py, bootloader.bin, requirements.txt, the three helper
+scripts, LICENSE, README.txt and a SHA256SUMS covering all of them -- so
+verifying still works after extraction, and anyone who wants a single script
+takes it out of there.
+
+The zip's own digest is printed into the release body rather than attached as
+a second file.
 
 The output directory is deliberately FLAT -- the payload is assembled in a
 temporary directory and only the zip survives. .github/workflows/release.yml
@@ -61,6 +63,10 @@ PAYLOAD = [
 ]
 
 PLACEHOLDER_URL = "https://github.com/OWNER/REPO"
+
+
+def commas(n):
+    return "{:,}".format(n)
 
 
 def sha256_file(path):
@@ -178,29 +184,26 @@ def stage(args, out, payload):
         for n in sorted(os.listdir(payload)):
             z.write(os.path.join(payload, n), os.path.join(args.name, n))
 
-    # ---- the same files loose --------------------------------------------
-    # SHA256SUMS COVERS THE LOOSE FILES ONLY.  Listing the zip in it breaks the
-    # loose-file route the release body offers: `sha256sum -c SHA256SUMS` then
-    # ends "gbflash-bootloader.zip: FAILED open or read", exit 1, as the first
-    # command someone runs before erasing their CodeFlash.  The zip carries its
-    # own one-line digest file instead, and each shape verifies cleanly on its
-    # own terms.
-    loose = [n for n in names if n != "SHA256SUMS"]
-    for n in loose:
-        shutil.copy2(os.path.join(payload, n), os.path.join(out, n))
-    lines = write_sha256sums(out, sorted(loose))
-
+    # ---- ONE ASSET --------------------------------------------------------
+    # THE STAGING DIRECTORY IS THE ASSET LIST, so it holds the zip and nothing
+    # else. Attaching the same nine files loose beside it put thirteen rows on
+    # the release page -- eleven of ours plus GitHub's two automatic source
+    # archives -- and buried the single download the payload exists to be.
+    #
+    # Anyone who wants one script takes it out of the zip, which carries its own
+    # SHA256SUMS for exactly that. The zip's own digest goes in the release BODY
+    # as text: a .sha256 file on the page is one more row to parse, and it is no
+    # more trustworthy than the page printing it.
     zip_name = os.path.basename(zip_path)
-    zip_sum = "%s  %s\n" % (sha256_file(zip_path), zip_name)
-    with open(zip_path + ".sha256", "w") as f:
-        f.write(zip_sum)
-    lines = lines + [zip_sum]
+    zip_digest = sha256_file(zip_path)
 
     print("  DIST    %s" % out)
-    for line in lines:
-        print("          " + line.rstrip())
+    print("          %s  %s" % (zip_digest, zip_name))
+    for n in sorted(os.listdir(payload)):
+        print("            %s" % n)
     print()
-    print("  one download:  %s" % os.path.basename(zip_path))
+    print("  one asset:  %s  (%s bytes)"
+          % (zip_name, commas(os.path.getsize(zip_path))))
     print("  bootloader.bin is NOT flashable on its own -- build_composite.py")
     print("  builds the flashable image from the user's own backup.")
     print("  The guided install is:  python3 install.py")

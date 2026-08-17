@@ -77,11 +77,15 @@ jobs:
       # rather than on someone's desk.
       - name: Verify the downloadable zip
         run: |
-          mkdir -p /tmp/zip && cd /tmp/zip
+          rm -rf /tmp/dl /tmp/unz && mkdir -p /tmp/unz && cd /tmp/unz
           unzip -q "$GITHUB_WORKSPACE/build/dist/gbflash-bootloader.zip"
           test -d gbflash-bootloader || {
             echo "FAIL: the zip did not extract into its own folder"; ls -la; exit 1; }
-          cd gbflash-bootloader
+          # Every later step works from /tmp/dl, which IS the extracted payload:
+          # the zip is the only asset, so this folder is exactly what a
+          # downloader ends up with and there is no other shape left to test.
+          mv gbflash-bootloader /tmp/dl
+          cd /tmp/dl
           sha256sum -c SHA256SUMS
           for f in install.py bootloader.bin requirements.txt README.txt LICENSE \
                    build_composite.py backup-codeflash.py check-bootloader-region.py; do
@@ -108,77 +112,65 @@ jobs:
           fi
           echo "the zip installs clean"
 
-      # THE ASSET LIST AND THE STAGED PAYLOAD MUST NOT DRIFT APART.  They did:
-      # `make dist` staged install.py and SHA256SUMS listed it, but a hand-kept
-      # upload list did not carry it -- so the published release advertised a
-      # file it did not attach, and nobody who downloaded a release ever got
-      # --restore, which is the recovery path.
+      # THE STAGING DIRECTORY IS THE ASSET LIST.  Everything in build/dist/ is
+      # published, by construction, so the two cannot drift apart -- which they
+      # did once before, when a hand-kept upload list omitted install.py and the
+      # release advertised a file it had not attached.
       #
-      # That was fixed by deriving the list from SHA256SUMS, which then broke a
-      # second way: SHA256SUMS is what a DOWNLOADER runs `sha256sum -c` against,
-      # so it must name only the loose files -- listing the zip in it makes that
-      # command fail for anyone who did not also download the zip.  The two jobs
-      # are different jobs.
-      #
-      # So the upload list comes from the staging DIRECTORY, which
-      # tools/stage_release.py controls exactly and keeps flat. Everything
-      # staged is published, by construction, and neither role constrains the
-      # other.
+      # tools/stage_release.py puts exactly one file there: the zip. If that
+      # ever becomes more than one, this still publishes all of them, but the
+      # count is asserted so the release page cannot quietly grow rows again.
       - name: Derive the asset list from the staged directory
         id: assets
         run: |
           ls -1 build/dist | sort > /tmp/staged.txt
           echo "staged files:"; sed 's/^/  /' /tmp/staged.txt
+          n=$(wc -l < /tmp/staged.txt)
+          if [ "$n" -ne 1 ]; then
+            echo "FAIL: expected exactly one asset (the zip), found $n."
+            echo "      The release page is meant to be one download."
+            exit 1
+          fi
           list=""
-          while IFS= read -r n; do
-            [ -n "$n" ] || continue
-            if [ ! -f "build/dist/$n" ]; then
-              echo "FAIL: build/dist/$n is not a regular file"; exit 1
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            if [ ! -s "build/dist/$f" ]; then
+              echo "FAIL: build/dist/$f is missing or empty"; exit 1
             fi
-            if [ ! -s "build/dist/$n" ]; then
-              echo "FAIL: build/dist/$n is empty"; exit 1
-            fi
-            list="$list build/dist/$n"
+            list="$list build/dist/$f"
           done < /tmp/staged.txt
-          # Cross-check: everything SHA256SUMS names must be staged too, so a
-          # checksum file naming a file nobody uploaded cannot get published.
-          while IFS= read -r n; do
-            [ -n "$n" ] || continue
-            if [ ! -s "build/dist/$n" ]; then
-              echo "FAIL: $n is named in SHA256SUMS but is not staged"; exit 1
-            fi
-          done < <(awk '{print $2}' build/dist/SHA256SUMS | sed 's/^\*//')
           echo "ASSETS=$list" >> "$GITHUB_OUTPUT"
           echo "assets to upload:$list"
 
+      # EVERYTHING BELOW RUNS FROM /tmp/dl, THE EXTRACTED ZIP.  The zip is the
+      # only asset now, so the extracted folder is literally what a downloader
+      # has in front of them -- there is no other shape left to test. These
+      # steps used to `cp build/dist/*`, which worked only while the same files
+      # were also published loose.
+      #
       # A release whose installer was never executed is a release whose central
-      # claim is untested. Run it exactly as a downloader would: from the flat
-      # staged directory, with no --bootloader flag, against a simulated device.
-      - name: Verify the staged installer runs
+      # claim is untested. No --bootloader flag, so the payload's own
+      # bootloader.bin discovery is what is being exercised.
+      - name: Verify the installer runs from the extracted zip
         run: |
-          mkdir -p /tmp/dl-inst && cp build/dist/* /tmp/dl-inst/
-          (cd /tmp/dl-inst && python3 install.py --dry-run --sim empty --yes </dev/null) \
+          (cd /tmp/dl && python3 install.py --dry-run --sim empty --yes </dev/null) \
               > /tmp/inst.log 2>&1 || { tail -30 /tmp/inst.log; exit 1; }
           # These two phrases are pinned by host/test_install.py
           # (test_release_phrases), so an output rewrite fails a suite rather
           # than this job.
           grep -q "Done. Firmware updates now work" /tmp/inst.log
           # ...and that its refusals refuse.
-          (cd /tmp/dl-inst && python3 install.py --dry-run --sim installed --yes </dev/null) \
+          (cd /tmp/dl && python3 install.py --dry-run --sim installed --yes </dev/null) \
               > /tmp/inst2.log 2>&1 && {
                 echo "FAIL: the installer did not refuse a device that already has one"
                 exit 1; }
           grep -q "bootloader already present" /tmp/inst2.log
           tail -3 /tmp/inst.log
 
-      # A release whose central tool does not work is worse than no release.
-      # Drive it exactly as a downloader will: staged files copied to a flat
-      # directory, no --bootloader flag (so the release one-liner's own
-      # bootloader.bin discovery is what is being tested), a full-device image
-      # in, a flashable composite out.
-      - name: Verify the staged tools work
+      # A release whose central tool does not work is worse than no release:
+      # a full-device image in, a flashable composite out.
+      - name: Verify the tools work from the extracted zip
         run: |
-          mkdir -p /tmp/dl && cp build/dist/* /tmp/dl/
           python3 .github/scripts/make_test_backup.py /tmp/device-backup.bin
           (cd /tmp/dl && python3 build_composite.py \
               --backup /tmp/device-backup.bin --out /tmp/install.bin)
@@ -191,7 +183,7 @@ jobs:
       # The half of the tool that protects the user is the half that refuses.
       # Publishing a verifier whose refusal path was never exercised on this run
       # is publishing an unknown.
-      - name: Verify the staged tool rejects bad input
+      - name: Verify the tool rejects bad input
         run: |
           head -c 5000 /dev/urandom > /tmp/junk.bin
           if (cd /tmp/dl && python3 build_composite.py \
@@ -202,17 +194,16 @@ jobs:
           fi
           head -4 /tmp/junk.log
 
-      # SHA256SUMS was generated by `make dist` from these same files moments
-      # ago, so checking them against it can only catch a disk fault.  What is
-      # worth checking is that staging copied what the build produced: hash the
-      # build output and the staged copy independently and require them equal.
-      - name: Verify the staged bootloader is the one that was built
+      # Staging copied what the build produced: hash the build output and the
+      # copy that came back out of the published zip, and require them equal.
+      # This is the one check that spans the whole pipeline, build to download.
+      - name: Verify the published bootloader is the one that was built
         run: |
           a=$(sha256sum < build/bootloader.bin | cut -d' ' -f1)
-          b=$(sha256sum < build/dist/bootloader.bin | cut -d' ' -f1)
-          c=$(sha256sum < /tmp/dl/bootloader.bin | cut -d' ' -f1)
-          echo "built  $a"; echo "staged $b"; echo "as-downloaded $c"
-          test "$a" = "$b" && test "$b" = "$c"
+          b=$(sha256sum < /tmp/dl/bootloader.bin | cut -d' ' -f1)
+          echo "built         $a"
+          echo "as-downloaded $b"
+          test "$a" = "$b"
           grep -q "$a" build/dist/SHA256SUMS
           (cd build/dist && sha256sum -c SHA256SUMS)
 
@@ -239,8 +230,8 @@ jobs:
           case "$TAG" in
             *-*) prerelease="--prerelease" ;;
           esac
-          # $ASSETS comes from SHA256SUMS, so the published set and the
-          # checksum file cannot disagree. Word-splitting is intended here.
+          # $ASSETS is every file in build/dist/, so the published set is the
+          # staged set by construction. Word-splitting is intended here.
           # shellcheck disable=SC2086
           gh release create "$TAG" \
               --title "$TAG" \
