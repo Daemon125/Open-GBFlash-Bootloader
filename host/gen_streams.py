@@ -86,7 +86,9 @@ GETSERIAL_DIR = _find_getserial()
 
 FIXTURES = HERE / "fixtures"
 BUILD = HERE / "build"
-LIB = BUILD / "libgbfdev.dylib"
+# Matches host/Makefile's SOEXT: .dylib on macOS, .so everywhere else.
+LIB = BUILD / ("libgbfdev.dylib" if sys.platform == "darwin"
+               else "libgbfdev.so")
 
 INTRO = 0x48484A4A
 OUTRO = 0x4A4A4848

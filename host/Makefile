@@ -71,13 +71,25 @@ WARN      := -Wall -Wextra -Wshadow -Wpointer-arith -Wcast-align \
              -Wstrict-prototypes -Wmissing-prototypes -Wno-unused-parameter
 CFLAGS    := -std=c99 -g -O1 $(WARN)
 
+# ASK THE COMPILER, DO NOT ASSUME IT IS CLANG.  `cc` is clang on macOS and gcc
+# on every Linux CI runner, and they do not offer the same sanitizers.
+# -fsanitize=local-bounds is a Clang extension: GCC does not merely ignore it,
+# it rejects the whole -fsanitize= option, so the first compile failed and
+# `make -C host test` died with exit 2 five seconds into the job -- green on
+# the developer's Mac, red on every push.
+comma := ,
+cc-supports = $(shell printf 'int main(void){return 0;}' | \
+                $(CC) -xc - $(1) -o /dev/null >/dev/null 2>&1 && echo $(1))
+
 SAN       ?= guard
 ifeq ($(SAN),asan)
 SANFLAGS  := -fsanitize=address,undefined -fno-omit-frame-pointer \
              -fno-sanitize-recover=all
 else
-SANFLAGS  := -fsanitize=undefined,local-bounds -fno-omit-frame-pointer \
-             -fno-sanitize-recover=all
+UBSAN_BEST := -fsanitize=undefined$(comma)local-bounds
+UBSAN_OK   := $(call cc-supports,$(UBSAN_BEST))
+UBSAN      := $(if $(UBSAN_OK),$(UBSAN_BEST),-fsanitize=undefined)
+SANFLAGS   := $(UBSAN) -fno-omit-frame-pointer -fno-sanitize-recover=all
 endif
 
 BUILD     := build
@@ -86,7 +98,11 @@ FIXTURES  := fixtures
 DUT       := $(SRCDIR)/proto.c flash_stub.c dev_api.c guard.c
 HDRS      := $(INCDIR)/proto.h flash_stub.h dev_api.h guard.h
 
-LIB       := $(BUILD)/libgbfdev.dylib
+# .dylib is macOS-only; everywhere else a shared object is .so.  Nothing in
+# `make test` builds this -- only `make all` and `rebaseline` -- which is why a
+# hardcoded .dylib survived this long.
+SOEXT     := $(if $(filter Darwin,$(shell uname -s)),dylib,so)
+LIB       := $(BUILD)/libgbfdev.$(SOEXT)
 TESTBIN   := $(BUILD)/test_proto
 FUZZBIN   := $(BUILD)/fuzz_proto
 HDRCHK    := $(BUILD)/check_headers
