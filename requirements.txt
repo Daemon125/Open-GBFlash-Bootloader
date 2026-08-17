@@ -1,0 +1,16 @@
+# pyserial -- the only thing this project needs that Python does not ship.
+# Note the name mismatch: the package is "pyserial", the module is "serial".
+#
+# A floor, not a range. The API surface used is small and has been stable for
+# the whole of pyserial 3.x -- Serial(port, baud, timeout=), read/write/flush/
+# close, reset_input_buffer/reset_output_buffer, and serial.tools.list_ports.
+# Capping the top would be guessing at a version nobody has tested against.
+#
+#   python3 -m pip install -r requirements.txt
+#
+# If that reports "externally-managed-environment" (Debian 12+, Ubuntu 23.04+,
+# Fedora, Homebrew Python), use your system package instead -- for example
+# `sudo apt install python3-serial` -- or a virtualenv.
+#
+# --restore needs none of this. It writes over USB and never opens a port.
+pyserial>=3.0

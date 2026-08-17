@@ -1,0 +1,7 @@
+{
+  "fixtures": [
+    "flashgbx.h2d.bin",
+    "flashgbx_gui.h2d.bin",
+    "unlocker.h2d.bin"
+  ]
+}

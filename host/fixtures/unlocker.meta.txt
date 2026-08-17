@@ -1,0 +1,11 @@
+host=gbflash_serial_update.py (imported)
+source=work/ref/gbflash_unlocker/gbflash_serial_update.py
+image=work/bootloader/host/build/synthetic_fw.bin
+image_len=30496
+error=
+device_frames=63
+log=Using port: FAKE0 | Bootloader ready: program_size=0x3E00, page_size=0x200 | Writing: 1/60 (  1.7%) | Writing: 2/60 (  3.3%) | Writing: 3/60 (  5.0%) | Writing: 4/60 (  6.7%) | Writing: 5/60 (  8.3%) | Writing: 6/60 ( 10.0%) | Writing: 7/60 ( 11.7%) | Writing: 8/60 ( 13.3%) | Writing: 9/60 ( 15.0%) | Writing: 10/60 ( 16.7%) | Writing: 11/60 ( 18.3%) | Writing: 12/60 ( 20.0%) | Writing: 13/60 ( 21.7%) | Writing: 14/60 ( 23.3%) | Writing: 15/60 ( 25.0%) | Writing: 16/60 ( 26.7%) | Writing: 17/60 ( 28.3%) | Writing: 18/60 ( 30.0%) | Writing: 19/60 ( 31.7%) | Writing: 20/60 ( 33.3%) | Writing: 21/60 ( 35.0%) | Writing: 22/60 ( 36.7%) | Writing: 23/60 ( 38.3%) | Writing: 24/60 ( 40.0%) | Writing: 25/60 ( 41.7%) | Writing: 26/60 ( 43.3%) | Writing: 27/60 ( 45.0%) | Writing: 28/60 ( 46.7%) | Writing: 29/60 ( 48.3%) | Writing: 30/60 ( 50.0%) | Writing: 31/60 ( 51.7%) | Writing: 32/60 ( 53.3%) | Writing: 33/60 ( 55.0%) | Writing: 34/60 ( 56.7%) | Writing: 35/60 ( 58.3%) | Writing: 36/60 ( 60.0%) | Writing: 37/60 ( 61.7%) | Writing: 38/60 ( 63.3%) | Writing: 39/60 ( 65.0%) | Writing: 40/60 ( 66.7%) | Writing: 41/60 ( 68.3%) | Writing: 42/60 ( 70.0%) | Writing: 43/60 ( 71.7%) | Writing: 44/60 ( 73.3%) | Writing: 45/60 ( 75.0%) | Writing: 46/60 ( 76.7%) | Writing: 47/60 ( 78.3%) | Writing: 48/60 ( 80.0%) | Writing: 49/60 ( 81.7%) | Writing: 50/60 ( 83.3%) | Writing: 51/60 ( 85.0%) | Writing: 52/60 ( 86.7%) | Writing: 53/60 ( 88.3%) | Writing: 54/60 ( 90.0%) | Writing: 55/60 ( 91.7%) | Writing: 56/60 ( 93.3%) | Writing: 57/60 ( 95.0%) | Writing: 58/60 ( 96.7%) | Writing: 59/60 ( 98.3%) | Writing: 60/60 (100.0%)
+image_match=True
+tail_erased=True
+bootloader_intact=True
+finalized=True

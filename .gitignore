@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------------------
+# Build outputs
+# ---------------------------------------------------------------------------
+# `make clean` removes build/ and `make -C host clean` removes host/build/.
+# Both are listed anyway so a partial tree never gets committed.
+/build/
+/host/build/
+
+# Object files, dependency files and listings, wherever they land.
+*.o
+*.d
+*.i
+*.elf
+*.bin
+*.hex
+*.map
+*.lst
+
+# The composite install image, if it is built in the tree.
+/composite.bin
+/*.composite.bin
+
+# ---------------------------------------------------------------------------
+# Host test-harness artifacts
+# ---------------------------------------------------------------------------
+# Native binaries have no extension, so they are named rather than globbed —
+# these are the ones host/Makefile produces. They used to be committed by
+# accident because `make clean` did not reach outside host/build/.
+/host/check_headers
+/host/test_proto
+/host/test_flash
+/host/test_usb
+/host/test_timebase
+/host/fuzz_proto
+/host/rehearse_update
+
+# Shared libraries and debug bundles.
+*.dylib
+*.so
+*.dSYM/
+
+# fixtures/ is deliberately NOT ignored: the recorded host streams and the
+# pinned device-response baseline are checked in, and regenerating them must
+# reproduce them byte for byte. The *.bin rule above would otherwise swallow
+# them, so it is undone here -- this must stay BELOW that rule to win.
+!/host/fixtures/*.bin
+!/host/fixtures/*.json
+!/host/fixtures/*.meta.txt
+
+# No third-party firmware or tooling is tracked here. If you keep a local copy
+# of someone else's image for testing, keep it outside the repository.
+*.pkbin
+
+# ---------------------------------------------------------------------------
+# Anything read off a device
+# ---------------------------------------------------------------------------
+# docs/backup-codeflash.py writes here by default. A firmware dump is the
+# user's own device image and has no business in a repository.
+/backup/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ---------------------------------------------------------------------------
+# Editors and platforms
+# ---------------------------------------------------------------------------
+.DS_Store
+*.swp
+*~
+.vscode/
+.idea/
+compile_commands.json
+
+# Local artefacts from running install.py — never commit these.
+# The backup files are copies of YOUR device's flash; keep them, just not here.
+gbflash-backup-*.bin
+gbflash-install-*.bin
+# A locally built copy of the third-party ISP tool.
+isp55e0
+
+# The downloaded ISP tool.
+wchisp
+wchisp-*/

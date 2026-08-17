@@ -1,0 +1,160 @@
+name: CI
+
+# Branch pushes and pull requests only.  Tags are handled by release.yml, and
+# nothing in this file publishes anything: `permissions: contents: read` means
+# the token this workflow gets cannot create a release even if a step tried.
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # --------------------------------------------------------------------------
+  # The cross build and the offline image checks.
+  # --------------------------------------------------------------------------
+  firmware:
+    name: firmware (make all, make check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install arm-none-eabi-gcc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi
+
+      # THE BINARY IS TOOLCHAIN-DEPENDENT AND THIS IS NOT PINNED.
+      # A different arm-none-eabi-gcc produces a different, equally valid
+      # image, so the sha256 below is a record of what THIS build produced --
+      # it is not compared against a stored constant, and CI does not fail on
+      # a mismatch with any figure quoted in the documentation.  The compiler
+      # version is printed next to it so the two are read together.
+      - name: Record toolchain
+        run: |
+          arm-none-eabi-gcc --version | head -1
+          python3 --version
+
+      - name: make all
+        run: make all
+
+      - name: make check
+        run: make check
+
+      - name: Image identity
+        run: |
+          ls -l build/bootloader.bin
+          sha256sum build/bootloader.bin
+          make size
+
+      - name: make dist
+        run: make dist
+
+      # The release's whole premise is that a user can turn bootloader.bin plus
+      # their own backup into a flashable image.  If that is broken, the
+      # release is undeliverable, so it is a gate and not an afterthought.
+      #
+      # RUN IT THE WAY THE RELEASE BODY TELLS PEOPLE TO RUN IT.  The staged
+      # files are copied to a scratch directory and the command is issued from
+      # inside it with no --bootloader flag, so default_bootloader()'s
+      # flat-directory discovery -- the mechanism the published one-liner
+      # depends on -- is actually exercised.  Passing --bootloader explicitly,
+      # as this step used to, gated a command no user is told to type.
+      - name: Composite tool end-to-end, as a downloader runs it
+        run: |
+          mkdir -p /tmp/dl && cp build/dist/* /tmp/dl/
+          python3 .github/scripts/make_test_backup.py /tmp/device-backup.bin
+          (cd /tmp/dl && python3 build_composite.py \
+              --backup /tmp/device-backup.bin --out /tmp/install.bin)
+          test -s /tmp/install.bin
+          sha256sum /tmp/install.bin
+
+      # A `--all` backup is the whole 250 KB array: the application followed by
+      # erased flash.  It is the more thorough of the two backups
+      # backup-codeflash.py offers, and the tool used to reject it outright
+      # ("length field matches the payload actually present", exit 2, no output
+      # file).  Both shapes must produce the same composite, byte for byte.
+      - name: Composite accepts a whole-array (--all) backup
+        run: |
+          python3 .github/scripts/make_test_backup.py /tmp/backup-all.bin --all
+          (cd /tmp/dl && python3 build_composite.py \
+              --backup /tmp/backup-all.bin --out /tmp/install-all.bin)
+          cmp /tmp/install.bin /tmp/install-all.bin
+          echo "whole-array and application-sized backups agree byte for byte"
+
+      # The composite must be refused, loudly and with a non-zero status, when
+      # the inputs are wrong.  A verifier that only ever passes is not one.
+      - name: Composite tool rejects bad input
+        run: |
+          head -c 5000 /dev/urandom > /tmp/junk.bin
+          if (cd /tmp/dl && python3 build_composite.py \
+                 --backup /tmp/junk.bin) > /tmp/junk.log 2>&1; then
+            echo "FAIL: the tool accepted a garbage backup"
+            cat /tmp/junk.log
+            exit 1
+          fi
+          echo "rejected as expected:"
+          head -4 /tmp/junk.log
+
+      - name: Upload build output
+        uses: actions/upload-artifact@v4
+        with:
+          name: bootloader-${{ github.sha }}
+          path: build/dist/
+          if-no-files-found: error
+
+  # --------------------------------------------------------------------------
+  # The native suites.  No cross toolchain involved; they compile the portable
+  # sources against host models under ASan/UBSan.
+  # --------------------------------------------------------------------------
+  host-tests:
+    name: host suites (make -C host test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # WHY CI GENERATES THESE.  The end-to-end rehearsal takes two firmware
+      # images and, without them, host/Makefile SKIPS it and the other six
+      # suites still report success -- so an unattended CI run would quietly
+      # gate on less than a developer does.  The images it wants are vendor
+      # firmware, which this repository does not contain and must never
+      # acquire, so CI generates two synthetic ones instead.  The rehearsal
+      # exercises framing, CRCs, sequencing and lengths, none of which depend
+      # on what the payload bytes mean.
+      #
+      # Two different sizes, in both directions: 'typical' (0x7520) and
+      # 'odd-tail' (0x7514).  The rehearsal updates L14 -> L15 -> L14, so
+      # passing the smaller as L14 covers grow-then-shrink.
+      #
+      # NOTE ON THE OUTPUT: rehearse_update prints "three complete
+      # stock-fw.bin updates".  Under this job the images are synthetic, not
+      # stock vendor firmware -- the wording describes the image shape.
+      - name: Generate synthetic firmware images
+        run: |
+          python3 host/make_synthetic_fw.py /tmp/syn-L14.bin --shape odd-tail
+          python3 host/make_synthetic_fw.py /tmp/syn-L15.bin --shape typical
+
+      - name: make -C host test
+        run: |
+          make -C host test FW_L14=/tmp/syn-L14.bin FW_L15=/tmp/syn-L15.bin \
+              2>&1 | tee /tmp/host.log
+
+      # host/Makefile SKIPS the rehearsal when FW_L14/FW_L15 do not resolve and
+      # still exits 0, so a path typo in the step above would silently downgrade
+      # this job from seven suites to six with nothing to show for it.  Assert
+      # the strongest suite actually ran.
+      - name: Assert the end-to-end rehearsal ran
+        run: |
+          grep -E '^rehearse_update: [0-9]+ checks, 0 failures' /tmp/host.log || {
+            echo "FAIL: rehearse_update did not run (or did not pass)."
+            echo "      FW_L14/FW_L15 probably did not resolve; the suite skips silently."
+            grep -i rehearse /tmp/host.log || true
+            exit 1
+          }

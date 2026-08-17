@@ -1,0 +1,266 @@
+name: Release
+
+# TAGS ONLY.  There is deliberately no `branches:` trigger and no
+# `workflow_dispatch` here: this is the only workflow with write access to the
+# repository's releases, and it must not be possible to fire it by pushing to a
+# branch.  Publishing is gated on someone creating a version tag on purpose.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create the release; nothing else is granted
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    name: gate, stage and publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install arm-none-eabi-gcc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-none-eabi
+
+      # THE GATES RUN BEFORE ANYTHING IS STAGED, AND THE ARTEFACTS COME FROM
+      # THIS BUILD.  The logs are kept because the release body quotes them:
+      # the numbers a reader sees are grepped out of the run that produced the
+      # files, not copied from documentation that may have drifted.
+      - name: Build
+        run: |
+          arm-none-eabi-gcc --version | head -1 | tee /tmp/build.log
+          make all 2>&1 | tee -a /tmp/build.log
+
+      - name: make check
+        run: make check 2>&1 | tee /tmp/check.log
+
+      # Synthetic images, for the reason spelled out in ci.yml: without them
+      # the end-to-end rehearsal is skipped and the release would be gated on
+      # less than a developer runs.  No vendor firmware is involved.
+      - name: make -C host test
+        run: |
+          python3 host/make_synthetic_fw.py /tmp/syn-L14.bin --shape odd-tail
+          python3 host/make_synthetic_fw.py /tmp/syn-L15.bin --shape typical
+          make -C host test FW_L14=/tmp/syn-L14.bin FW_L15=/tmp/syn-L15.bin \
+              2>&1 | tee /tmp/host.log
+
+      # host/Makefile skips the rehearsal and still exits 0 when FW_L14/FW_L15
+      # do not resolve, and release_body.sh's grep would still match the other
+      # six suites -- so a path typo above would publish a release gated on less
+      # than it claims, with the rehearsal line simply absent from the body.
+      # Assert it ran.
+      - name: Assert the end-to-end rehearsal ran
+        run: |
+          grep -E '^rehearse_update: [0-9]+ checks, 0 failures' /tmp/host.log || {
+            echo "FAIL: rehearse_update did not run (or did not pass);"
+            echo "      refusing to publish a release that claims it did."
+            grep -i rehearse /tmp/host.log || true
+            exit 1
+          }
+
+      # GITHUB_REPOSITORY reaches the Makefile, which turns it into the repo
+      # URL substituted into the payload's README.txt -- so the flat download
+      # has somewhere to point when install.py mentions docs/RECOVERY.md.
+      - name: Stage the release payload
+        run: make dist
+
+      # The zip is the primary download and the one the release body leads
+      # with. Unpack it the way a person will and run the installer out of the
+      # extracted folder: a zip that is missing a file, or that unpacks over
+      # the working directory instead of into its own folder, must fail here
+      # rather than on someone's desk.
+      - name: Verify the downloadable zip
+        run: |
+          mkdir -p /tmp/zip && cd /tmp/zip
+          unzip -q "$GITHUB_WORKSPACE/build/dist/gbflash-bootloader.zip"
+          test -d gbflash-bootloader || {
+            echo "FAIL: the zip did not extract into its own folder"; ls -la; exit 1; }
+          cd gbflash-bootloader
+          sha256sum -c SHA256SUMS
+          for f in install.py bootloader.bin requirements.txt README.txt LICENSE \
+                   build_composite.py backup-codeflash.py check-bootloader-region.py; do
+            test -s "$f" || { echo "FAIL: $f missing from the zip"; exit 1; }
+          done
+          # `if !` rather than `grep && { exit 1; }`: a grep that correctly
+          # finds nothing exits 1, and under `bash -e` that reads as the step
+          # failing when it in fact passed.
+          if grep -q "@REPO_URL@" README.txt; then
+            echo "FAIL: README.txt still carries the placeholder URL"; exit 1
+          fi
+          # The stamp: the install.py in the zip must vouch for the
+          # bootloader.bin in the zip, whatever compiler built it.
+          want=$(sha256sum < bootloader.bin | cut -d' ' -f1)
+          grep -q "^BL_SHA256 = \"$want\"$" install.py || {
+            echo "FAIL: the zip's install.py is not stamped with its own bootloader.bin"
+            grep '^BL_SHA256' install.py; echo "expected $want"; exit 1; }
+          python3 install.py --dry-run --sim empty --yes </dev/null > /tmp/zip.log 2>&1 \
+            || { tail -30 /tmp/zip.log; exit 1; }
+          grep -q "Done. Firmware updates now work" /tmp/zip.log
+          # A correctly stamped payload must NOT warn about its own binary.
+          if grep -q "not the one published" /tmp/zip.log; then
+            echo "FAIL: the payload disowns its own bootloader.bin"; exit 1
+          fi
+          echo "the zip installs clean"
+
+      # THE ASSET LIST AND THE STAGED PAYLOAD MUST NOT DRIFT APART.  They did:
+      # `make dist` staged install.py and SHA256SUMS listed it, but a hand-kept
+      # upload list did not carry it -- so the published release advertised a
+      # file it did not attach, and nobody who downloaded a release ever got
+      # --restore, which is the recovery path.
+      #
+      # That was fixed by deriving the list from SHA256SUMS, which then broke a
+      # second way: SHA256SUMS is what a DOWNLOADER runs `sha256sum -c` against,
+      # so it must name only the loose files -- listing the zip in it makes that
+      # command fail for anyone who did not also download the zip.  The two jobs
+      # are different jobs.
+      #
+      # So the upload list comes from the staging DIRECTORY, which
+      # tools/stage_release.py controls exactly and keeps flat. Everything
+      # staged is published, by construction, and neither role constrains the
+      # other.
+      - name: Derive the asset list from the staged directory
+        id: assets
+        run: |
+          ls -1 build/dist | sort > /tmp/staged.txt
+          echo "staged files:"; sed 's/^/  /' /tmp/staged.txt
+          list=""
+          while IFS= read -r n; do
+            [ -n "$n" ] || continue
+            if [ ! -f "build/dist/$n" ]; then
+              echo "FAIL: build/dist/$n is not a regular file"; exit 1
+            fi
+            if [ ! -s "build/dist/$n" ]; then
+              echo "FAIL: build/dist/$n is empty"; exit 1
+            fi
+            list="$list build/dist/$n"
+          done < /tmp/staged.txt
+          # Cross-check: everything SHA256SUMS names must be staged too, so a
+          # checksum file naming a file nobody uploaded cannot get published.
+          while IFS= read -r n; do
+            [ -n "$n" ] || continue
+            if [ ! -s "build/dist/$n" ]; then
+              echo "FAIL: $n is named in SHA256SUMS but is not staged"; exit 1
+            fi
+          done < <(awk '{print $2}' build/dist/SHA256SUMS | sed 's/^\*//')
+          echo "ASSETS=$list" >> "$GITHUB_OUTPUT"
+          echo "assets to upload:$list"
+
+      # A release whose installer was never executed is a release whose central
+      # claim is untested. Run it exactly as a downloader would: from the flat
+      # staged directory, with no --bootloader flag, against a simulated device.
+      - name: Verify the staged installer runs
+        run: |
+          mkdir -p /tmp/dl-inst && cp build/dist/* /tmp/dl-inst/
+          (cd /tmp/dl-inst && python3 install.py --dry-run --sim empty --yes </dev/null) \
+              > /tmp/inst.log 2>&1 || { tail -30 /tmp/inst.log; exit 1; }
+          # These two phrases are pinned by host/test_install.py
+          # (test_release_phrases), so an output rewrite fails a suite rather
+          # than this job.
+          grep -q "Done. Firmware updates now work" /tmp/inst.log
+          # ...and that its refusals refuse.
+          (cd /tmp/dl-inst && python3 install.py --dry-run --sim installed --yes </dev/null) \
+              > /tmp/inst2.log 2>&1 && {
+                echo "FAIL: the installer did not refuse a device that already has one"
+                exit 1; }
+          grep -q "bootloader already present" /tmp/inst2.log
+          tail -3 /tmp/inst.log
+
+      # A release whose central tool does not work is worse than no release.
+      # Drive it exactly as a downloader will: staged files copied to a flat
+      # directory, no --bootloader flag (so the release one-liner's own
+      # bootloader.bin discovery is what is being tested), a full-device image
+      # in, a flashable composite out.
+      - name: Verify the staged tools work
+        run: |
+          mkdir -p /tmp/dl && cp build/dist/* /tmp/dl/
+          python3 .github/scripts/make_test_backup.py /tmp/device-backup.bin
+          (cd /tmp/dl && python3 build_composite.py \
+              --backup /tmp/device-backup.bin --out /tmp/install.bin)
+          test -s /tmp/install.bin
+          python3 .github/scripts/make_test_backup.py /tmp/backup-all.bin --all
+          (cd /tmp/dl && python3 build_composite.py \
+              --backup /tmp/backup-all.bin --out /tmp/install-all.bin)
+          cmp /tmp/install.bin /tmp/install-all.bin
+
+      # The half of the tool that protects the user is the half that refuses.
+      # Publishing a verifier whose refusal path was never exercised on this run
+      # is publishing an unknown.
+      - name: Verify the staged tool rejects bad input
+        run: |
+          head -c 5000 /dev/urandom > /tmp/junk.bin
+          if (cd /tmp/dl && python3 build_composite.py \
+                 --backup /tmp/junk.bin) > /tmp/junk.log 2>&1; then
+            echo "FAIL: the tool accepted a garbage backup"
+            cat /tmp/junk.log
+            exit 1
+          fi
+          head -4 /tmp/junk.log
+
+      # SHA256SUMS was generated by `make dist` from these same files moments
+      # ago, so checking them against it can only catch a disk fault.  What is
+      # worth checking is that staging copied what the build produced: hash the
+      # build output and the staged copy independently and require them equal.
+      - name: Verify the staged bootloader is the one that was built
+        run: |
+          a=$(sha256sum < build/bootloader.bin | cut -d' ' -f1)
+          b=$(sha256sum < build/dist/bootloader.bin | cut -d' ' -f1)
+          c=$(sha256sum < /tmp/dl/bootloader.bin | cut -d' ' -f1)
+          echo "built  $a"; echo "staged $b"; echo "as-downloaded $c"
+          test "$a" = "$b" && test "$b" = "$c"
+          grep -q "$a" build/dist/SHA256SUMS
+          (cd build/dist && sha256sum -c SHA256SUMS)
+
+      - name: Compose the release body
+        run: |
+          bash .github/scripts/release_body.sh \
+              "${GITHUB_REF_NAME}" \
+              /tmp/build.log /tmp/check.log /tmp/host.log \
+              build/dist > /tmp/body.md
+          echo "----- release body -----"
+          cat /tmp/body.md
+
+      # `gh` is preinstalled on GitHub-hosted runners, so publishing needs no
+      # third-party action.  --verify-tag refuses to invent a tag that does not
+      # exist. A tag carrying a suffix (v1.0.0-rc1) is published as a
+      # prerelease rather than as the latest stable download.
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          ASSETS: ${{ steps.assets.outputs.ASSETS }}
+        run: |
+          prerelease=""
+          case "$TAG" in
+            *-*) prerelease="--prerelease" ;;
+          esac
+          # $ASSETS comes from SHA256SUMS, so the published set and the
+          # checksum file cannot disagree. Word-splitting is intended here.
+          # shellcheck disable=SC2086
+          gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file /tmp/body.md \
+              --verify-tag \
+              $prerelease \
+              $ASSETS
+
+      # Belt and braces: ask the API what actually landed and require it to be
+      # the same set again, so a partial upload is not published quietly.
+      - name: Assert every staged file is attached to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" --json assets \
+              --jq '.assets[].name' | sort > /tmp/attached.txt
+          ls -1 build/dist | sort > /tmp/staged.txt
+          echo "staged:"; cat /tmp/staged.txt
+          echo "attached:"; cat /tmp/attached.txt
+          diff -u /tmp/staged.txt /tmp/attached.txt || {
+            echo "FAIL: the published assets are not the staged payload."
+            exit 1; }

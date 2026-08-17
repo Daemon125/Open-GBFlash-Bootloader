@@ -1,0 +1,12 @@
+host=FlashGBX FirmwareUpdater (imported)
+source=gbflash-tools/.flashgbx/FlashGBX/hw_GBFlash.py
+image=work/bootloader/host/build/synthetic_fw.bin
+image_len=30496
+gui_double_trigger=False
+rc=1
+device_frames=63
+final_status=Done!
+image_match=True
+tail_erased=True
+bootloader_intact=True
+finalized=True
