@@ -24,7 +24,7 @@ jobs:
     name: firmware (make all, make check)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install arm-none-eabi-gcc
         run: |
@@ -104,7 +104,7 @@ jobs:
           head -4 /tmp/junk.log
 
       - name: Upload build output
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: bootloader-${{ github.sha }}
           path: build/dist/
@@ -118,7 +118,7 @@ jobs:
     name: host suites (make -C host test)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # WHY CI GENERATES THESE.  The end-to-end rehearsal takes two firmware
       # images and, without them, host/Makefile SKIPS it and the other six

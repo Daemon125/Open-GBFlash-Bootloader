@@ -21,7 +21,7 @@ jobs:
     name: gate, stage and publish
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install arm-none-eabi-gcc
         run: |
